@@ -23,12 +23,13 @@ let break_on_undef = ref false;;
 let printf_returns_int = ref true;;
 (** The --sysroot flag is a hack to avoid any actual C standard library files
 from being used. *)
-let cpp_options =
-  ref ("--sysroot=. -I" ^ !Include.include_dir ^ " -include prelude.c");;
+let include_prelude = ref true;;
+let cpp_options () =
+  "--sysroot=. -I" ^ !Include.include_dir ^ (if !include_prelude then " -include prelude.c" else "");;
 
 let cabs_of_file name =
   Cerrors.reset();
-  let ic = Unix.open_process_in ("cpp " ^ !cpp_options ^ " " ^ name) in
+  let ic = Unix.open_process_in ("cpp " ^ cpp_options () ^ " " ^ name) in
   let lb = Lexer.init name ic in
   let p = Parser.file Lexer.initial lb in
   Lexer.finish();
@@ -796,6 +797,121 @@ let decls_of_cabs x =
 
 let decls_of_file x = decls_of_cabs (cabs_of_file x);;
 
+type term = A of string | C of term list | L of term list | T of term list
+
+let rec print_term parens = function
+  | A s ->
+    print_string s
+  | C (t::ts) ->
+    open_hovbox 2;
+    if parens then print_string "(";
+    print_term true t; 
+    List.iter (fun t -> print_space (); print_term true t) ts;
+    if parens then print_string ")";
+    close_box ()
+  | L [] ->
+    print_string "[]"
+  | L (t::ts) ->
+    open_hovbox 1;
+    print_string "[";
+    print_term false t;
+    List.iter (fun t -> print_string ";"; print_space (); print_term false t) ts;
+    print_string "]";
+    close_box ()
+  | T [] ->
+    print_string "()"
+  | T (t::ts) ->
+    open_hovbox 1;
+    print_string "(";
+    print_term false t;
+    List.iter (fun t -> print_string ","; print_space (); print_term false t) ts;
+    print_string ")";
+    close_box ()
+
+let (@@) f args = C (A f :: args)
+
+let term_of_option term_of_a v =
+  match v with
+    None -> A "None"
+  | Some a -> "Some" @@ [term_of_a a]
+
+let term_of_signedness s =
+  match s with
+    Signed -> A "Signed"
+  | Unsigned -> A "Unsigned"
+
+let term_of_cint_rank r =
+  match r with
+    CCharRank -> A "CCharRank"
+  | CShortRank -> A "CShortRank"
+  | CIntRank -> A "CIntRank"
+  | CLongRank -> A "CLongRank"
+  | CLongLongRank -> A "CLongLongRank"
+  | CPtrRank -> A "CPtrRank"
+
+let term_of_cint_type {csign; crank} =
+  "CIntType" @@ [term_of_option term_of_signedness csign; term_of_cint_rank crank]
+
+let int_of_positive p =
+  match p with
+    XI p -> int_of_positive p * 2 + 1
+  | XO p -> int_of_positive p * 2
+  | XH -> 1
+
+let int_of_z z =
+  match z with
+    Z0 -> 0
+  | Zpos p -> int_of_positive p
+  | Zneg p -> - (int_of_positive p)
+
+let term_of_z z =
+  A (string_of_int (int_of_z z))
+
+let term_of_cexpr e =
+  match e with
+    CEConst (t, z) -> "CEConst" @@ [term_of_cint_type t; term_of_z z]
+
+let rec term_of_list term_of_x xs = L (List.map term_of_x xs)
+
+let term_of_cstorage s =
+  match s with
+    StaticStorage -> A "StaticStorage"
+  | ExternStorage -> A "ExternStorage"
+  | AutoStorage -> A "AutoStorage"
+
+let term_of_char_list cs =
+  let cs_ = Array.of_list cs in
+  A ("\"" ^ String.init (Array.length cs_) (fun i -> cs_.(i)) ^ "\"")
+
+let rec term_of_ctype t =
+  match t with
+    CTFun (pts, rt) -> "CTFun" @@ [term_of_list term_of_cparamtype pts; term_of_ctype rt]
+  | CTInt t -> "CTInt" @@ [term_of_cint_type t]
+and term_of_cparamtype (name, t) =
+  T [term_of_option term_of_char_list name; term_of_ctype t]
+
+let rec term_of_cstmt s =
+  match s with
+    CSReturn e -> "CSReturn" @@ [term_of_option term_of_cexpr e]
+
+let term_of_decl d =
+  match d with
+    FunDecl (ss, t, s) -> "FunDecl" @@ [term_of_list term_of_cstorage ss; term_of_ctype t; term_of_cstmt s]
+
+let term_of_decls ds =
+  term_of_list (fun (n, d) -> T [term_of_char_list n; term_of_decl d]) ds
+
+let print_decls ds =
+  open_vbox 0;
+  open_hovbox 2;
+  print_string "Definition decls: list (string * decl) :=";
+  print_space ();
+  print_term false (term_of_decls ds);
+  print_string ".";
+  close_box ();
+  print_space ();
+  close_box ()
+
 exception CH2O_error of string;;
 exception CH2O_undef of arch_rank undef_state;;
 exception CH2O_exited of num;;
@@ -940,7 +1056,7 @@ let run_decls arch rand x argv = run_stream (stream_of_decls arch rand x argv);;
 let run_cabs arch rand x argv = run_stream (stream_of_cabs arch rand x argv);;
 let run_file arch rand x argv = run_stream (stream_of_file arch rand x argv);;
 
-type mode = Run of bool | Trace of bool
+type mode = Run of bool | Trace of bool | PrintAbstractC
 
 let main () =
   Gc.set { (Gc.get()) with
@@ -972,6 +1088,7 @@ let main () =
         "char is unsigned (default signed)");
      ("-be", Arg.Unit (fun _ -> arch := {!arch with arch_big_endian = true}),
         "big endian (default little)");
+     ("-o", Arg.Unit (fun _ -> mode := PrintAbstractC), "do not run; just print the CH2O abstract C AST in Coq-readable form")
     ] in
   let usage_msg =
     "Usage: "^Filename.basename(Sys.argv.(0))^" [options] filename [args]" in
@@ -981,8 +1098,8 @@ let main () =
   let argv = List.map codes_of_string !args in
   match !mode with
   | Run rand -> run_file !arch rand filename argv
-  | Trace trace_printfs -> trace_file !arch trace_printfs filename argv;
-  64;;
+  | Trace trace_printfs -> trace_file !arch trace_printfs filename argv; 64
+  | PrintAbstractC -> include_prelude := false; print_decls (decls_of_file filename); 0;;
 
 let interactive () = Str.string_match (Str.regexp ".*ocaml$") Sys.argv.(0) 0;;
 if not (interactive ()) then exit (main());;
