@@ -867,9 +867,14 @@ let int_of_z z =
 let term_of_z z =
   A (string_of_int (int_of_z z))
 
+let term_of_char_list cs =
+  let cs_ = Array.of_list cs in
+  A ("\"" ^ String.init (Array.length cs_) (fun i -> cs_.(i)) ^ "\"")
+
 let term_of_cexpr e =
   match e with
     CEConst (t, z) -> "CEConst" @@ [term_of_cint_type t; term_of_z z]
+  | CEVar x -> "CEVar" @@ [term_of_char_list x]
 
 let rec term_of_list term_of_x xs = L (List.map term_of_x xs)
 
@@ -879,10 +884,6 @@ let term_of_cstorage s =
   | ExternStorage -> A "ExternStorage"
   | AutoStorage -> A "AutoStorage"
 
-let term_of_char_list cs =
-  let cs_ = Array.of_list cs in
-  A ("\"" ^ String.init (Array.length cs_) (fun i -> cs_.(i)) ^ "\"")
-
 let rec term_of_ctype t =
   match t with
     CTFun (pts, rt) -> "CTFun" @@ [term_of_list term_of_cparamtype pts; term_of_ctype rt]
@@ -890,9 +891,14 @@ let rec term_of_ctype t =
 and term_of_cparamtype (name, t) =
   T [term_of_option term_of_char_list name; term_of_ctype t]
 
+let rec term_of_cinit = function
+  CSingleInit e -> "CSingleInit" @@ [term_of_cexpr e]
+    
 let rec term_of_cstmt s =
   match s with
     CSReturn e -> "CSReturn" @@ [term_of_option term_of_cexpr e]
+  | CSLocal (ss, x, t, init, body) ->
+    "CSLocal" @@ [term_of_list term_of_cstorage ss; term_of_char_list x; term_of_ctype t; term_of_option term_of_cinit init; term_of_cstmt body]
 
 let term_of_decl d =
   match d with
