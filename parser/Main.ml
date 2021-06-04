@@ -871,10 +871,44 @@ let term_of_char_list cs =
   let cs_ = Array.of_list cs in
   A ("\"" ^ String.init (Array.length cs_) (fun i -> cs_.(i)) ^ "\"")
 
-let term_of_cexpr e =
+let term_of_compop = function
+  | EqOp -> A "EqOp"
+  | LtOp -> A "LtOp"
+  | LeOp -> A "LeOp"
+
+let term_of_arithop = function
+  | PlusOp -> A "PlusOp"
+  | MinusOp -> A "MinusOp"
+  | MultOp -> A "MultOp"
+  | DivOp -> A "DivOp"
+  | ModOp -> A "ModOp"
+
+let term_of_shiftop = function
+  | ShiftLOp -> A "ShiftLOp"
+  | ShiftROp -> A "ShiftROp"
+
+let term_of_bitop = function
+  | AndOp -> A "AndOp"
+  | OrOp -> A "OrOp"
+  | XorOp -> A "XorOp"
+
+let term_of_binop = function
+  | CompOp c -> "CompOp" @@ [term_of_compop c]
+  | ArithOp a -> "ArithOp" @@ [term_of_arithop a]
+  | ShiftOp s -> "ShiftOp" @@ [term_of_shiftop s]
+  | BitOp b -> "BitOp" @@ [term_of_bitop b]
+
+let term_of_assign = function
+  | Assign -> A "Assign"
+  | PreOp b -> "PreOp" @@ [term_of_binop b]
+  | PostOp b -> "PostOp" @@ [term_of_binop b]
+
+let rec term_of_cexpr e =
   match e with
     CEConst (t, z) -> "CEConst" @@ [term_of_cint_type t; term_of_z z]
   | CEVar x -> "CEVar" @@ [term_of_char_list x]
+  | CEBinOp (op, e1, e2) -> "CEBinOp" @@ [term_of_binop op; term_of_cexpr e1; term_of_cexpr e2]
+  | CEAssign (a, e1, e2) -> "CEAssign" @@ [term_of_assign a; term_of_cexpr e1; term_of_cexpr e2]
 
 let rec term_of_list term_of_x xs = L (List.map term_of_x xs)
 
@@ -899,6 +933,9 @@ let rec term_of_cstmt s =
     CSReturn e -> "CSReturn" @@ [term_of_option term_of_cexpr e]
   | CSLocal (ss, x, t, init, body) ->
     "CSLocal" @@ [term_of_list term_of_cstorage ss; term_of_char_list x; term_of_ctype t; term_of_option term_of_cinit init; term_of_cstmt body]
+  | CSComp (s1, s2) -> "CSComp" @@ [term_of_cstmt s1; term_of_cstmt s2]
+  | CSWhile (e, s) -> "CSWhile" @@ [term_of_cexpr e; term_of_cstmt s]
+  | CSDo e -> "CSDo" @@ [term_of_cexpr e]
 
 let term_of_decl d =
   match d with
