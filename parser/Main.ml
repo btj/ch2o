@@ -930,12 +930,25 @@ let rec term_of_cinit = function
     
 let rec term_of_cstmt s =
   match s with
-    CSReturn e -> "CSReturn" @@ [term_of_option term_of_cexpr e]
+    CSDo e -> "CSDo" @@ [term_of_cexpr e]
+  | CSSkip -> A "CSSkip"
+  | CSGoto l -> "CSGoto" @@ [term_of_char_list l]
+  | CSBreak -> A "CSBreak"
+  | CSContinue -> A "CSContinue"
+  | CSReturn e -> "CSReturn" @@ [term_of_option term_of_cexpr e]
+  | CSCase (e, s) -> "CSCase" @@ [term_of_cexpr e; term_of_cstmt s]
+  | CSDefault s -> "CSDefault" @@ [term_of_cstmt s]
+  | CSScope s -> "CSScope" @@ [term_of_cstmt s]
   | CSLocal (ss, x, t, init, body) ->
     "CSLocal" @@ [term_of_list term_of_cstorage ss; term_of_char_list x; term_of_ctype t; term_of_option term_of_cinit init; term_of_cstmt body]
+  | CSTypeDef (x, t, s) -> "CSTypeDef" @@ [term_of_char_list x; term_of_ctype t; term_of_cstmt s]
   | CSComp (s1, s2) -> "CSComp" @@ [term_of_cstmt s1; term_of_cstmt s2]
+  | CSLabel (l, s) -> "CSLabel" @@ [term_of_char_list l; term_of_cstmt s]
   | CSWhile (e, s) -> "CSWhile" @@ [term_of_cexpr e; term_of_cstmt s]
-  | CSDo e -> "CSDo" @@ [term_of_cexpr e]
+  | CSFor (i, c, u, s) -> "CSFor" @@ [term_of_cexpr i; term_of_cexpr c; term_of_cexpr u; term_of_cstmt s]
+  | CSDoWhile (s, e) -> "CSDoWhile" @@ [term_of_cstmt s; term_of_cexpr e]
+  | CSIf (e, s1, s2) -> "CSIf" @@ [term_of_cexpr e; term_of_cstmt s1; term_of_cstmt s2]
+  | CSSwitch (e, s) -> "CSSwitch" @@ [term_of_cexpr e; term_of_cstmt s]
 
 let term_of_decl d =
   match d with
